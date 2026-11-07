@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NZ Election 2026 – Live Results</title>
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --ink:#1c1c1a; --muted:#6b6b66; --line:#e3e3de; --accent:#2a5d9f; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161615; --card:#201f1e; --ink:#efefe9; --muted:#9a9a93; --line:#34332f; --accent:#6aa3e8; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  main { max-width:960px; margin:0 auto; padding:20px 16px 48px; }
+  h1 { font-size:1.5rem; margin:0 0 4px; }
+  h2 { font-size:1.05rem; margin:28px 0 10px; }
+  .sub { color:var(--muted); font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-top:14px; }
+  .tile b { display:block; font-size:1.6rem; line-height:1.2; }
+  .tile span { color:var(--muted); font-size:.85rem; }
+  .party { display:grid; grid-template-columns:minmax(120px,1.2fr) 3fr auto; gap:10px; align-items:center; padding:7px 0; border-top:1px solid var(--line); }
+  .party:first-child { border-top:0; }
+  .bar { height:10px; background:var(--line); border-radius:5px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--accent); }
+  .num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .num small { color:var(--muted); display:block; font-size:.78rem; }
+  .seatbar { display:flex; height:22px; border-radius:6px; overflow:hidden; background:var(--line); margin:10px 0 4px; position:relative; }
+  .seatbar i { display:block; height:100%; }
+  .majority { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--ink); }
+  input[type=search] { width:100%; padding:9px 12px; font:inherit; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); margin-bottom:10px; }
+  table { width:100%; border-collapse:collapse; font-size:.92rem; }
+  th, td { text-align:left; padding:7px 8px; border-top:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; cursor:pointer; user-select:none; white-space:nowrap; }
+  td.r, th.r { text-align:right; font-variant-numeric:tabular-nums; }
+  .tablewrap { overflow-x:auto; }
+  .err { color:#b3261e; }
+  footer { margin-top:28px; color:var(--muted); font-size:.85rem; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>NZ General Election 2026</h1>
+  <div class="sub" id="status">Loading…</div>
+
+  <div class="tiles" id="tiles"></div>
+
+  <h2>Party vote &amp; projected seats</h2>
+  <div class="card">
+    <div class="seatbar" id="seatbar"></div>
+    <div class="sub" id="seatnote"></div>
+    <div id="parties" style="margin-top:8px"></div>
+  </div>
+
+  <h2>Electorates</h2>
+  <div class="card">
+    <input type="search" id="q" placeholder="Search electorate or candidate…">
+    <div class="tablewrap">
+      <table>
+        <thead><tr>
+          <th data-k="name">Electorate</th><th data-k="leading">Leading</th><th data-k="second">2nd</th>
+          <th class="r" data-k="margin">Margin</th><th class="r" data-k="pctCounted">Counted</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    Unofficial viewer. Data is the <b>preliminary count</b> published by the Electoral Commission at
+    <a href="https://electionresults.govt.nz/ge2026/" target="_blank" rel="noopener">electionresults.govt.nz</a>,
+    refreshed every 30 seconds. Seat numbers are the Commission's <i>projected</i> allocation, not final.
+    Special votes are counted later; official results are due 27 November.
+  </footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => Number(n).toLocaleString('en-NZ');
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const COLORS = { 'National':'#2f6fb5','Labour':'#d4413a','Green':'#3a9a4d','ACT':'#e2b01c','New Zealand First':'#222','Opportunity':'#00a3a3','Māori':'#b8473d' };
+const colorFor = (n) => { for (const k in COLORS) if (n.includes(k)) return COLORS[k]; return '#8a8a85'; };
+
+let data = null, sortKey = 'name', sortDir = 1;
+
+function renderParties(d) {
+  const o = d.overall, ps = o.parties;
+  const withSeats = ps.filter((p) => p.seats > 0);
+  const total = (o.totals && o.totals.seats) || withSeats.reduce((a, p) => a + p.seats, 0);
+  $('seatbar').innerHTML = withSeats.map((p) => `<i title="${esc(p.name)}: ${p.seats}" style="width:${p.seats / total * 100}%;background:${colorFor(p.name)}"></i>`).join('') +
+    `<span class="majority" style="left:${61 / total * 100}%" title="61 seats"></span>`;
+  $('seatnote').textContent = `${total} projected seats${total > 120 ? ' (includes overhang)' : ''}; 61 needed for a majority (line shown).`;
+  const maxPct = Math.max(...ps.map((p) => p.pct), 1);
+  $('parties').innerHTML = ps.filter((p) => p.pct >= 0.5 || p.seats > 0).map((p) => `
+    <div class="party">
+      <div><b>${esc(p.name)}</b></div>
+      <div class="bar"><i style="width:${p.pct / maxPct * 100}%;background:${colorFor(p.name)}"></i></div>
+      <div class="num">${p.pct.toFixed(2)}%<small>${fmt(p.votes)} votes · ${p.seats} seats (${p.electorateSeats} elec + ${p.listSeats} list)</small></div>
+    </div>`).join('');
+}
+
+function renderTiles(d) {
+  const t = [];
+  if (d.overall.percentCounted != null) t.push([d.overall.percentCounted + '%', 'party vote counted']);
+  if (d.resultsCounted) t.push([fmt(d.resultsCounted.counted), `of ${fmt(d.resultsCounted.total)} voting places`]);
+  if (d.overall.totals) t.push([fmt(d.overall.totals.votes), 'party votes so far']);
+  const lead = [...d.overall.parties].sort((a, b) => b.votes - a.votes)[0];
+  if (lead) t.push([lead.name.replace(/ (Party|New Zealand)$/,''), 'leads the party vote']);
+  $('tiles').innerHTML = t.map(([b, s]) => `<div class="card tile"><b>${esc(b)}</b><span>${esc(s)}</span></div>`).join('');
+}
+
+function renderRows() {
+  const q = $('q').value.trim().toLowerCase();
+  let rows = data.electorates.filter((e) => !q || (e.name + e.leading + e.second).toLowerCase().includes(q));
+  rows.sort((a, b) => (a[sortKey] > b[sortKey] ? 1 : a[sortKey] < b[sortKey] ? -1 : 0) * sortDir);
+  $('rows').innerHTML = rows.map((e) => `<tr><td><b>${esc(e.name)}</b></td><td>${esc(e.leading)}</td><td>${esc(e.second)}</td><td class="r">${fmt(e.margin)}</td><td class="r">${e.pctCounted}%</td></tr>`).join('') || '<tr><td colspan="5">No matches</td></tr>';
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/results');
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || r.status);
+    data = d;
+    renderTiles(d); renderParties(d); renderRows();
+    $('status').className = 'sub';
+    $('status').textContent = 'Updated ' + new Date(d.fetchedAt).toLocaleTimeString('en-NZ') + (d.stale ? ' (source temporarily unreachable, showing last data)' : '');
+  } catch (e) {
+    $('status').className = 'sub err';
+    $('status').textContent = 'Could not load results: ' + e.message;
+  }
+}
+
+$('q').addEventListener('input', () => data && renderRows());
+document.querySelectorAll('th[data-k]').forEach((th) => th.addEventListener('click', () => {
+  const k = th.dataset.k; sortDir = sortKey === k ? -sortDir : 1; sortKey = k; data && renderRows();
+}));
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>
